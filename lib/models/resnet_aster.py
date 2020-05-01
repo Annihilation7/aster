@@ -10,14 +10,21 @@ global_args = get_args(sys.argv[1:])
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-  """3x3 convolution with padding"""
-  return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                   padding=1, bias=False)
+  """
+  h,w不变的3x3卷积（stride=1, pad=1）
+  """
+  return nn.Conv2d(
+    in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
+  )
 
 
 def conv1x1(in_planes, out_planes, stride=1):
-  """1x1 convolution"""
-  return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+  """
+  h,w不变的1x1卷积(stride=1, pad=0)
+  """
+  return nn.Conv2d(
+    in_planes, out_planes, kernel_size=1, stride=stride, bias=False
+  )
 
 
 def get_sinusoid_encoding(n_position, feat_dim, wave_length=10000):
@@ -37,6 +44,10 @@ def get_sinusoid_encoding(n_position, feat_dim, wave_length=10000):
 class AsterBlock(nn.Module):
 
   def __init__(self, inplanes, planes, stride=1, downsample=None):
+    """
+    channel: inplanes -> planes -> planes
+             第一次1x1卷积，第二次3x3卷积，都是h,w不变的
+    """
     super(AsterBlock, self).__init__()
     self.conv1 = conv1x1(inplanes, planes, stride)
     self.bn1 = nn.BatchNorm2d(planes)
@@ -54,7 +65,7 @@ class AsterBlock(nn.Module):
     out = self.conv2(out)
     out = self.bn2(out)
 
-    if self.downsample is not None:
+    if self.downsample is not None:  # 有可能此时out的通道数和x不一样了，所以要downsample一下
       residual = self.downsample(x)
     out += residual
     out = self.relu(out)
@@ -64,26 +75,28 @@ class AsterBlock(nn.Module):
 class ResNet_ASTER(nn.Module):
   """For aster or crnn"""
 
-  def __init__(self, with_lstm=False, n_group=1):
+  def __init__(self, with_lstm=False):
     super(ResNet_ASTER, self).__init__()
     self.with_lstm = with_lstm
-    self.n_group = n_group
 
     in_channels = 3  # rgb channel?
     self.layer0 = nn.Sequential(
         nn.Conv2d(in_channels, 32, kernel_size=(3, 3), stride=1, padding=1, bias=False),
         nn.BatchNorm2d(32),
-        nn.ReLU(inplace=True))
+        nn.ReLU(inplace=True)
+    )
 
     self.inplanes = 32
-    self.layer1 = self._make_layer(32,  3, [2, 2]) # [16, 50]
-    self.layer2 = self._make_layer(64,  4, [2, 2]) # [8, 25]
-    self.layer3 = self._make_layer(128, 6, [2, 1]) # [4, 25]
-    self.layer4 = self._make_layer(256, 6, [2, 1]) # [2, 25]
-    self.layer5 = self._make_layer(512, 3, [2, 1]) # [1, 25]
+    self.layer1 = self._make_layer(32,  3, [2, 2])  # [16, 50]
+    self.layer2 = self._make_layer(64,  4, [2, 2])  # [8, 25]
+    self.layer3 = self._make_layer(128, 6, [2, 1])  # [4, 25]
+    self.layer4 = self._make_layer(256, 6, [2, 1])  # [2, 25]
+    self.layer5 = self._make_layer(512, 3, [2, 1])  # [1, 25]
 
     if with_lstm:
-      self.rnn = nn.LSTM(512, 256, bidirectional=True, num_layers=2, batch_first=True)
+      self.rnn = nn.LSTM(
+        512, 256, bidirectional=True, num_layers=2, batch_first=True
+      )
       self.out_planes = 2 * 256
     else:
       self.out_planes = 512
@@ -96,15 +109,19 @@ class ResNet_ASTER(nn.Module):
         nn.init.constant_(m.bias, 0)
 
   def _make_layer(self, planes, blocks, stride):
+    """
+    进行一系列的AsterBlock的叠加
+    planes代表了输出通道数，blocks代表了几个AsterBlock的叠加，stride代表了interal layer的conv1x1的stride
+    """
     downsample = None
     if stride != [1, 1] or self.inplanes != planes:
       downsample = nn.Sequential(
           conv1x1(self.inplanes, planes, stride),
-          nn.BatchNorm2d(planes))
+          nn.BatchNorm2d(planes))  # 用 1x1conv+bn 来进行downsample
 
     layers = []
     layers.append(AsterBlock(self.inplanes, planes, stride, downsample))
-    self.inplanes = planes
+    self.inplanes = planes  # 此时self.inplanes == planes说明后面的AsterBlock是不进行downsample的
     for _ in range(1, blocks):
       layers.append(AsterBlock(self.inplanes, planes))
     return nn.Sequential(*layers)
@@ -117,22 +134,17 @@ class ResNet_ASTER(nn.Module):
     x4 = self.layer4(x3)
     x5 = self.layer5(x4)
 
-    cnn_feat = x5.squeeze(2) # [N, c, w]
-    cnn_feat = cnn_feat.transpose(2, 1)
+    cnn_feat = x5.squeeze(2)  # [N, c, w] h干掉了
+    cnn_feat = cnn_feat.transpose(2, 1)  # [n, w, c] batch_first=True
     if self.with_lstm:
-      rnn_feat, _ = self.rnn(cnn_feat)
+      rnn_feat, _ = self.rnn(cnn_feat)  # _ 代表了 h_n以及c_n，用不到, [w, N, 512]
       return rnn_feat
     else:
       return cnn_feat
 
 
 if __name__ == "__main__":
-  """
-  这里对encoder的输入size进行改动，
-  input_w = 800
-  input_h = 48
-  """
   x = torch.randn(3, 3, 32, 100)
-  net = ResNet_ASTER(with_lstm=True, n_group=1)  # n_group是什么意思？
+  net = ResNet_ASTER(with_lstm=True)  # n_group是什么意思？
   encoder_feat = net(x)
-  print(encoder_feat.size())
+  print(encoder_feat.size())  # [25, 3, 512]
