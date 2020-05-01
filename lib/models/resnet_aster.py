@@ -147,4 +147,4 @@ if __name__ == "__main__":
   x = torch.randn(3, 3, 32, 100)
   net = ResNet_ASTER(with_lstm=True)  # n_group是什么意思？
   encoder_feat = net(x)
-  print(encoder_feat.size())  # [25, 3, 512]
+  print(encoder_feat.size())  # [3, 25, 512]
