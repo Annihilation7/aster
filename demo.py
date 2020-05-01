@@ -1,9 +1,10 @@
 from __future__ import absolute_import
 import sys
 sys.path.append('./')
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 import argparse
-import os
 import os.path as osp
 import numpy as np
 import math
@@ -23,7 +24,7 @@ from lib.datasets.dataset import LmdbDataset, AlignCollate
 from lib.loss import SequenceCrossEntropyLoss
 from lib.trainers import Trainer
 from lib.evaluators import Evaluator
-from lib.utils.logging import Logger, TFLogger
+# from lib.utils.logging import Logger, TFLogger
 from lib.utils.serialization import load_checkpoint, save_checkpoint
 from lib.utils.osutils import make_symlink_if_not_exists
 from lib.evaluation_metrics.metrics import get_str_list
@@ -92,6 +93,13 @@ def main(args):
                        sDim=args.decoder_sdim, attDim=args.attDim, max_len_labels=args.max_len,
                        eos=dataset_info.char2id[dataset_info.EOS], STN_ON=args.STN_ON)
 
+  # save stretch
+  # save_checkpoint({
+  #   'state_dict': model.state_dict(),
+  #   'iters': 0,
+  #   'best_res': 0.0,
+  # }, False, fpath=osp.join("checkpoints", 'stretch.pth.tar'))
+
   # Load from checkpoint
   if args.resume:
     checkpoint = load_checkpoint(args.resume)
@@ -112,7 +120,7 @@ def main(args):
   # TODO: testing should be more clean.
   # to be compatible with the lmdb-based testing, need to construct some meaningless variables.
   rec_targets = torch.IntTensor(1, args.max_len).fill_(1)
-  rec_targets[:,args.max_len-1] = dataset_info.char2id[dataset_info.EOS]
+  rec_targets[:,args.max_len-1] = dataset_info.char2id[dataset_info.EOS]  # 最后一个数设成EOS的idx
   input_dict['rec_targets'] = rec_targets
   input_dict['rec_lengths'] = [args.max_len]
   output_dict = model(input_dict)

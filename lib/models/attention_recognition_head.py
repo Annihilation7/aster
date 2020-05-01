@@ -14,27 +14,45 @@ class AttentionRecognitionHead(nn.Module):
   output: probability sequence: [b x T x num_classes]
   """
   def __init__(self, num_classes, in_planes, sDim, attDim, max_len_labels):
+    """
+    Params:
+      - num_classes: 输出的类别数目 (true_classes + <EOS>)
+      - in_planes: encoder输出的channels数量
+      - sDim: lstm(gru)的output_size
+      - attDim: Attention Module里面的channels数量
+      - max_len_labels:
+    """
     super(AttentionRecognitionHead, self).__init__()
-    self.num_classes = num_classes # this is the output classes. So it includes the <EOS>.
+    self.num_classes = num_classes  # this is the output classes. So it includes the <EOS>.
     self.in_planes = in_planes
     self.sDim = sDim
     self.attDim = attDim
     self.max_len_labels = max_len_labels
 
-    self.decoder = DecoderUnit(sDim=sDim, xDim=in_planes, yDim=num_classes, attDim=attDim)
+    self.decoder = DecoderUnit(
+      sDim=sDim, xDim=in_planes, yDim=num_classes, attDim=attDim
+    )
 
   def forward(self, x):
+    """
+    Params:
+      x是一个列表
+      - x[0]: encoder产生的hiddenstate, shape=[batch_size, time_steps, encoder_channels]
+      - x[1]: batch内每个sentence组成的idxes
+      - x[1]: batch内每个sentence的有效长度
+    """
     x, targets, lengths = x
     batch_size = x.size(0)
     # Decoder
-    state = torch.zeros(1, batch_size, self.sDim)
+    state = torch.zeros(1, batch_size, self.sDim)  # h0
     outputs = []
 
     for i in range(max(lengths)):
       if i == 0:
-        y_prev = torch.zeros((batch_size)).fill_(self.num_classes) # the last one is used as the <BOS>.
+        # the last one is used as the <BOS>. 全部以<EOS>填充
+        y_prev = torch.zeros((batch_size)).fill_(self.num_classes)
       else:
-        y_prev = targets[:,i-1]
+        y_prev = targets[:, i - 1]
 
       output, state = self.decoder(x, state, y_prev)
       outputs.append(output)
@@ -188,6 +206,10 @@ class AttentionUnit(nn.Module):
   def __init__(self, sDim, xDim, attDim):
     """
     sDim, xDim -> attDim -> 1
+    Params:
+      - sDim:
+      - xDim:
+      - attDim:
     """
     super(AttentionUnit, self).__init__()
 
@@ -241,7 +263,7 @@ class DecoderUnit(nn.Module):
     self.emdDim = attDim
 
     self.attention_unit = AttentionUnit(sDim, xDim, attDim)
-    self.tgt_embedding = nn.Embedding(yDim+1, self.emdDim) # the last is used for <BOS> 
+    self.tgt_embedding = nn.Embedding(yDim+1, self.emdDim)  # the last is used for <BOS>
     self.gru = nn.GRU(input_size=xDim+self.emdDim, hidden_size=sDim, batch_first=True)
     self.fc = nn.Linear(sDim, yDim)
 

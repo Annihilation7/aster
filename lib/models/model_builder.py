@@ -25,7 +25,10 @@ class ModelBuilder(nn.Module):
   """
   This is the integrated model.
   """
-  def __init__(self, arch, rec_num_classes, sDim, attDim, max_len_labels, eos, STN_ON=False):
+  def __init__(
+          self, arch, rec_num_classes, sDim,
+          attDim, max_len_labels, eos, STN_ON=False
+  ):
     super(ModelBuilder, self).__init__()
 
     self.arch = arch
@@ -35,19 +38,17 @@ class ModelBuilder(nn.Module):
     self.max_len_labels = max_len_labels
     self.eos = eos
     self.STN_ON = STN_ON
-    self.tps_inputsize = global_args.tps_inputsize
+    self.tps_inputsize = global_args.tps_inputsize  # [32, 64]
 
-    self.encoder = create(self.arch,
-                      with_lstm=global_args.with_lstm,
-                      n_group=global_args.n_group)
-    encoder_out_planes = self.encoder.out_planes
+    self.encoder = create(
+      self.arch, with_lstm=global_args.with_lstm
+    )
+    encoder_out_planes = self.encoder.out_planes  # 512，无论是否有lstm参与encoder都是512 channels
 
     self.decoder = AttentionRecognitionHead(
-                      num_classes=rec_num_classes,
-                      in_planes=encoder_out_planes,
-                      sDim=sDim,
-                      attDim=attDim,
-                      max_len_labels=max_len_labels)
+      num_classes=rec_num_classes, in_planes=encoder_out_planes,
+      sDim=sDim, attDim=attDim, max_len_labels=max_len_labels
+    )
     self.rec_crit = SequenceCrossEntropyLoss()
 
     if self.STN_ON:
@@ -73,14 +74,14 @@ class ModelBuilder(nn.Module):
     if self.STN_ON:
       # input images are downsampled before being fed into stn_head.
       stn_input = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
-      stn_img_feat, ctrl_points = self.stn_head(stn_input)
+      _, ctrl_points = self.stn_head(stn_input)
       x, _ = self.tps(x, ctrl_points)
       if not self.training:
         # save for visualization
         return_dict['output']['ctrl_points'] = ctrl_points
         return_dict['output']['rectified_images'] = x
 
-    encoder_feats = self.encoder(x)
+    encoder_feats = self.encoder(x)  # [b,time_steps, encoder_channels]
     encoder_feats = encoder_feats.contiguous()
 
     if self.training:

@@ -30,23 +30,25 @@ class STNHead(nn.Module):
     self.num_ctrlpoints = num_ctrlpoints
     self.activation = activation
     self.stn_convnet = nn.Sequential(
-                          conv3x3_block(in_planes, 32), # 32*64
-                          nn.MaxPool2d(kernel_size=2, stride=2),
-                          conv3x3_block(32, 64), # 16*32
-                          nn.MaxPool2d(kernel_size=2, stride=2),
-                          conv3x3_block(64, 128), # 8*16
-                          nn.MaxPool2d(kernel_size=2, stride=2),
-                          conv3x3_block(128, 256), # 4*8
-                          nn.MaxPool2d(kernel_size=2, stride=2),
-                          conv3x3_block(256, 256), # 2*4,
-                          nn.MaxPool2d(kernel_size=2, stride=2),
-                          conv3x3_block(256, 256)) # 1*2
+      conv3x3_block(in_planes, 32),  # 32*64
+      nn.MaxPool2d(kernel_size=2, stride=2),
+      conv3x3_block(32, 64),  # 16*32
+      nn.MaxPool2d(kernel_size=2, stride=2),
+      conv3x3_block(64, 128),  # 8*16
+      nn.MaxPool2d(kernel_size=2, stride=2),
+      conv3x3_block(128, 256),  # 4*8
+      nn.MaxPool2d(kernel_size=2, stride=2),
+      conv3x3_block(256, 256),  # 2*4,
+      nn.MaxPool2d(kernel_size=2, stride=2),
+      conv3x3_block(256, 256)  # shape=[batch_size, 256, 1, 2]
+    )
 
+    # [batch_size, 512] -> [batch_size, num_ctrlpoints*2]  e.g. num_ctrlpoints=20
     self.stn_fc1 = nn.Sequential(
                       nn.Linear(2*256, 512),
                       nn.BatchNorm1d(512),
                       nn.ReLU(inplace=True))
-    self.stn_fc2 = nn.Linear(512, num_ctrlpoints*2)
+    self.stn_fc2 = nn.Linear(512, num_ctrlpoints*2)  # 40
 
     self.init_weights(self.stn_convnet)
     self.init_weights(self.stn_fc1)
@@ -83,14 +85,14 @@ class STNHead(nn.Module):
     stn_fc2.bias.data = torch.Tensor(ctrl_points).view(-1)
 
   def forward(self, x):
-    x = self.stn_convnet(x)
+    x = self.stn_convnet(x)  # [batch_size, 256, 1, 2]
     batch_size, _, h, w = x.size()
-    x = x.view(batch_size, -1)
-    img_feat = self.stn_fc1(x)
-    x = self.stn_fc2(0.1 * img_feat)
+    x = x.view(batch_size, -1)  # [batch_size, 512]
+    img_feat = self.stn_fc1(x)  # [batch_size, num_ctrlpoints*2]
+    x = self.stn_fc2(0.1 * img_feat)  # 0.1 ratio scale 为什么要乘以0.1???
     if self.activation == 'sigmoid':
-      x = F.sigmoid(x)
-    x = x.view(-1, self.num_ctrlpoints, 2)
+      x = F.sigmoid(x)  # x的值归一化(0,1)之间
+    x = x.view(-1, self.num_ctrlpoints, 2)  # [batch_size, num_ctrlpoints, 2]
     return img_feat, x
 
 

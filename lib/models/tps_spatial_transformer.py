@@ -55,6 +55,12 @@ def build_output_control_points(num_control_points, margins):
 class TPSSpatialTransformer(nn.Module):
 
   def __init__(self, output_image_size=None, num_control_points=None, margins=None):
+    """
+    Params:
+      - output_image_size: [32, 100]
+      - num_control_points: 20
+      - margins: [0.05,0.05]
+    """
     super(TPSSpatialTransformer, self).__init__()
     self.output_image_size = output_image_size
     self.num_control_points = num_control_points

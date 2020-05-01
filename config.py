@@ -41,7 +41,7 @@ parser.add_argument('--aug', action='store_true', default=False,
                     help='whether use data augmentation.')
 parser.add_argument('--lexicon_type', type=str, default='0', choices=['0', '50', '1k', 'full'],
                     help='which lexicon associated to image is used.')
-parser.add_argument('--image_path', type=str, default='',
+parser.add_argument('--image_path', type=str, default="data/demo.png",
                     help='the path of single image, used in demo.py.')
 parser.add_argument('--tps_inputsize', nargs='+', type=int, default=[32, 64])
 parser.add_argument('--tps_outputsize', nargs='+', type=int, default=[32, 100])
@@ -50,14 +50,14 @@ parser.add_argument('-a', '--arch', type=str, default='ResNet_ASTER')
 parser.add_argument('--dropout', type=float, default=0.5)
 parser.add_argument('--max_len', type=int, default=100)
 parser.add_argument('--n_group', type=int, default=1)
-parser.add_argument('--STN_ON', action='store_true',
+parser.add_argument('--STN_ON', action='store_false',
                     help='add the stn head.')
 parser.add_argument('--tps_margins', nargs='+', type=float, default=[0.05,0.05])
 parser.add_argument('--stn_activation', type=str, default='none')
 parser.add_argument('--num_control_points', type=int, default=20)
 parser.add_argument('--stn_with_dropout', action='store_true', default=False)
 ## lstm
-parser.add_argument('--with_lstm', action='store_true', default=False,
+parser.add_argument('--with_lstm', action='store_false', default=False,
                     help='whether append lstm after cnn in the encoder part.')
 parser.add_argument('--decoder_sdim', type=int, default=512,
                     help="the dim of hidden layer in decoder.")
@@ -72,7 +72,7 @@ parser.add_argument('--weight_decay', type=float, default=0.0) # the model maybe
 parser.add_argument('--grad_clip', type=float, default=1.0)
 parser.add_argument('--loss_weights', nargs='+', type=float, default=[1,1,1])
 # training configs
-parser.add_argument('--resume', type=str, default='', metavar='PATH')
+parser.add_argument('--resume', type=str, default='/data/mazhenyu/jingxin/my_aster/checkpoints/stretch.pth.tar', metavar='PATH')
 parser.add_argument('--evaluate', action='store_true',
                     help="evaluation only")
 parser.add_argument('--epochs', type=int, default=6)
