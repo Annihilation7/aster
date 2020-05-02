@@ -48,7 +48,7 @@ class STNHead(nn.Module):
                       nn.Linear(2*256, 512),
                       nn.BatchNorm1d(512),
                       nn.ReLU(inplace=True))
-    self.stn_fc2 = nn.Linear(512, num_ctrlpoints*2)  # 40
+    self.stn_fc2 = nn.Linear(512, num_ctrlpoints*2)  # 40，应该是上20 下20
 
     self.init_weights(self.stn_convnet)
     self.init_weights(self.stn_fc1)
@@ -70,13 +70,13 @@ class STNHead(nn.Module):
 
   def init_stn(self, stn_fc2):
     margin = 0.01
-    sampling_num_per_side = int(self.num_ctrlpoints / 2)
-    ctrl_pts_x = np.linspace(margin, 1.-margin, sampling_num_per_side)
-    ctrl_pts_y_top = np.ones(sampling_num_per_side) * margin
-    ctrl_pts_y_bottom = np.ones(sampling_num_per_side) * (1-margin)
-    ctrl_pts_top = np.stack([ctrl_pts_x, ctrl_pts_y_top], axis=1)
-    ctrl_pts_bottom = np.stack([ctrl_pts_x, ctrl_pts_y_bottom], axis=1)
-    ctrl_points = np.concatenate([ctrl_pts_top, ctrl_pts_bottom], axis=0).astype(np.float32)
+    sampling_num_per_side = int(self.num_ctrlpoints / 2)  # 每边各10个点
+    ctrl_pts_x = np.linspace(margin, 1.0 - margin, sampling_num_per_side)  # len(ctrl_pts_x)=10，所以说是算上了边界点的
+    ctrl_pts_y_top = np.ones(sampling_num_per_side) * margin  # [0.01, 0.01, ...] 共10个
+    ctrl_pts_y_bottom = np.ones(sampling_num_per_side) * (1-margin)  # [0.99, 0.99, ...] 共10个
+    ctrl_pts_top = np.stack([ctrl_pts_x, ctrl_pts_y_top], axis=1)  # shape=[10, 2]  每行代表了上边一排控制点的 x,y 坐标
+    ctrl_pts_bottom = np.stack([ctrl_pts_x, ctrl_pts_y_bottom], axis=1)  # shape=[10, 2]  每行代表了下边一排控制点的x, y坐标
+    ctrl_points = np.concatenate([ctrl_pts_top, ctrl_pts_bottom], axis=0).astype(np.float32)  # shape=[20, 2] 前面10个是上边一排控制点的x,y坐标，后面10个是下边一排控制点的x,y坐标
     if self.activation is 'none':
       pass
     elif self.activation == 'sigmoid':
@@ -89,10 +89,11 @@ class STNHead(nn.Module):
     batch_size, _, h, w = x.size()
     x = x.view(batch_size, -1)  # [batch_size, 512]
     img_feat = self.stn_fc1(x)  # [batch_size, num_ctrlpoints*2]
-    x = self.stn_fc2(0.1 * img_feat)  # 0.1 ratio scale 为什么要乘以0.1???
+    # TODO 为什么要乘以0.1呢？
+    x = self.stn_fc2(0.1 * img_feat)
     if self.activation == 'sigmoid':
       x = F.sigmoid(x)  # x的值归一化(0,1)之间
-    x = x.view(-1, self.num_ctrlpoints, 2)  # [batch_size, num_ctrlpoints, 2]
+    x = x.view(-1, self.num_ctrlpoints, 2)  # [batch_size, num_ctrlpoints, 2]  求的是所有ctrl points的x, y坐标
     return img_feat, x
 
 
@@ -103,4 +104,4 @@ if __name__ == "__main__":
   stn_head = STNHead(in_planes, num_ctrlpoints, activation)
   input = torch.randn(10, 3, 32, 64)
   control_points = stn_head(input)    
-  print(control_points.size())
+  print(control_points[1].size())  # [10, 20, 2]

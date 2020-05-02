@@ -23,20 +23,23 @@ def grid_sample(input, grid, canvas = None):
 def compute_partial_repr(input_points, control_points):
   N = input_points.size(0)
   M = control_points.size(0)
-  pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
+  pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)  # shape=[N, M, 2]
   # original implementation, very slow
   # pairwise_dist = torch.sum(pairwise_diff ** 2, dim = 2) # square of distance
   pairwise_diff_square = pairwise_diff * pairwise_diff
   pairwise_dist = pairwise_diff_square[:, :, 0] + pairwise_diff_square[:, :, 1]
   repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
   # fix numerical error for 0 * log(0), substitute all nan with 0
-  mask = repr_matrix != repr_matrix
+  mask = repr_matrix != repr_matrix  # 0 * log(0)出现nan值，所以要赋成0，以便计算
   repr_matrix.masked_fill_(mask, 0)
   return repr_matrix
 
 
 # output_ctrl_pts are specified, according to our task.
 def build_output_control_points(num_control_points, margins):
+  """
+  产生 shape=[2*num_contron_points_per_size,2]的tensor，注意coordinates全部是诡异化后的值
+  """
   margin_x, margin_y = margins
   num_ctrl_pts_per_side = num_control_points // 2
   ctrl_pts_x = np.linspace(margin_x, 1.0 - margin_x, num_ctrl_pts_per_side)
@@ -66,14 +69,14 @@ class TPSSpatialTransformer(nn.Module):
     self.num_control_points = num_control_points
     self.margins = margins
 
-    self.target_height, self.target_width = output_image_size
-    target_control_points = build_output_control_points(num_control_points, margins)
+    self.target_height, self.target_width = output_image_size  # 32, 100
+    target_control_points = build_output_control_points(num_control_points, margins)  # shape=[num_control_points,2]
     N = num_control_points
     # N = N - 4
 
-    # create padded kernel matrix
+    # create padded kernel matrix，其实就是构造论文中的 delta_c
     forward_kernel = torch.zeros(N + 3, N + 3)
-    target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)
+    target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)  # shape=[K,K]，计算输入control points与输出control points的能量密度矩阵
     forward_kernel[:N, :N].copy_(target_control_partial_repr)
     forward_kernel[:N, -3].fill_(1)
     forward_kernel[-3, :N].fill_(1)
@@ -85,15 +88,15 @@ class TPSSpatialTransformer(nn.Module):
     # create target cordinate matrix
     HW = self.target_height * self.target_width
     target_coordinate = list(itertools.product(range(self.target_height), range(self.target_width)))
-    target_coordinate = torch.Tensor(target_coordinate) # HW x 2
-    Y, X = target_coordinate.split(1, dim = 1)
-    Y = Y / (self.target_height - 1)
+    target_coordinate = torch.Tensor(target_coordinate)  # HW x 2
+    Y, X = target_coordinate.split(1, dim=1)
+    Y = Y / (self.target_height - 1)  # normalize
     X = X / (self.target_width - 1)
-    target_coordinate = torch.cat([X, Y], dim = 1) # convert from (y, x) to (x, y)
+    target_coordinate = torch.cat([X, Y], dim=1)  # convert from (y, x) to (x, y)
     target_coordinate_partial_repr = compute_partial_repr(target_coordinate, target_control_points)
     target_coordinate_repr = torch.cat([
       target_coordinate_partial_repr, torch.ones(HW, 1), target_coordinate
-    ], dim = 1)
+    ], dim=1)
 
     # register precomputed matrices
     self.register_buffer('inverse_kernel', inverse_kernel)
@@ -102,9 +105,16 @@ class TPSSpatialTransformer(nn.Module):
     self.register_buffer('target_control_points', target_control_points)
 
   def forward(self, input, source_control_points):
-    assert source_control_points.ndimension() == 3
+    """
+    Params:
+      - input: 输入的4d image, shape=[batch_size, 3, 32, 100]
+      - source_control_points: shape=[batch_size, num_control_points, 2] 这个值
+        是stn_head模块输出的值
+    """
+    assert source_control_points.ndimension() == 3  # 等价于 tensor.ndim ndim是property装饰过的成员函数
     assert source_control_points.size(1) == self.num_control_points
     assert source_control_points.size(2) == 2
+    # 上面三个assert要求输出shape必须为：[batch_size, num_control_points, 2]
     batch_size = source_control_points.size(0)
 
     Y = torch.cat([source_control_points, self.padding_matrix.expand(batch_size, 3, 2)], 1)

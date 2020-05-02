@@ -74,7 +74,7 @@ class ModelBuilder(nn.Module):
     if self.STN_ON:
       # input images are downsampled before being fed into stn_head.
       stn_input = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
-      _, ctrl_points = self.stn_head(stn_input)
+      _, ctrl_points = self.stn_head(stn_input)  # ctrl_points shape: [batch_size, num_control_points, 2]
       x, _ = self.tps(x, ctrl_points)
       if not self.training:
         # save for visualization
