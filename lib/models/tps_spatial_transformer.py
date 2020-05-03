@@ -74,7 +74,7 @@ class TPSSpatialTransformer(nn.Module):
     N = num_control_points
     # N = N - 4
 
-    # create padded kernel matrix，其实就是构造论文中的 delta_c
+    # create padded kernel matrix，其实就是构造论文中的 delta_c，和论文中的delta_c还是有点区别的，模块的行顺序有颠倒
     forward_kernel = torch.zeros(N + 3, N + 3)
     target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)  # shape=[K,K]，计算输入control points与输出control points的能量密度矩阵
     forward_kernel[:N, :N].copy_(target_control_partial_repr)
@@ -96,7 +96,7 @@ class TPSSpatialTransformer(nn.Module):
     target_coordinate_partial_repr = compute_partial_repr(target_coordinate, target_control_points)
     target_coordinate_repr = torch.cat([
       target_coordinate_partial_repr, torch.ones(HW, 1), target_coordinate
-    ], dim=1)
+    ], dim=1)  # shape=[H*W, k+3]
 
     # register precomputed matrices
     self.register_buffer('inverse_kernel', inverse_kernel)
@@ -117,13 +117,13 @@ class TPSSpatialTransformer(nn.Module):
     # 上面三个assert要求输出shape必须为：[batch_size, num_control_points, 2]
     batch_size = source_control_points.size(0)
 
-    Y = torch.cat([source_control_points, self.padding_matrix.expand(batch_size, 3, 2)], 1)
-    mapping_matrix = torch.matmul(self.inverse_kernel, Y)
-    source_coordinate = torch.matmul(self.target_coordinate_repr, mapping_matrix)
+    Y = torch.cat([source_control_points, self.padding_matrix.expand(batch_size, 3, 2)], 1)  # shape=[batch_size, num_control_points+3,2]
+    mapping_matrix = torch.matmul(self.inverse_kernel, Y)  # [batch_size, num_control_points+3, 2]
+    source_coordinate = torch.matmul(self.target_coordinate_repr, mapping_matrix)    # [batch_size, h*w, 2]
 
-    grid = source_coordinate.view(-1, self.target_height, self.target_width, 2)
+    grid = source_coordinate.view(-1, self.target_height, self.target_width, 2)  # [b, h, w, 2]
     grid = torch.clamp(grid, 0, 1) # the source_control_points may be out of [0, 1].
     # the input to grid_sample is normalized [-1, 1], but what we get is [0, 1]
-    grid = 2.0 * grid - 1.0
-    output_maps = grid_sample(input, grid, canvas=None)
+    grid = 2.0 * grid - 1.0  # F.grid_sample要求的要在 [-1, 1]之间
+    output_maps = grid_sample(input, grid, canvas=None)  # [batch_size, 3, 32, 100]
     return output_maps, source_coordinate

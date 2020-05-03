@@ -49,7 +49,7 @@ class AttentionRecognitionHead(nn.Module):
 
     for i in range(max(lengths)):
       if i == 0:
-        # the last one is used as the <BOS>. 全部以<EOS>填充
+        # the last one is used as the <BOS>
         y_prev = torch.zeros((batch_size)).fill_(self.num_classes)
       else:
         y_prev = targets[:, i - 1]
