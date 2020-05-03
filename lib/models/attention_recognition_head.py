@@ -18,8 +18,8 @@ class AttentionRecognitionHead(nn.Module):
     Params:
       - num_classes: 输出的类别数目 (true_classes + <EOS>)
       - in_planes: encoder输出的channels数量
-      - sDim: lstm(gru)的output_size
-      - attDim: Attention Module里面的channels数量
+      - sDim: decoder的hidden layer的dim
+      - attDim: Attention Module里面的dim
       - max_len_labels:
     """
     super(AttentionRecognitionHead, self).__init__()
@@ -38,13 +38,14 @@ class AttentionRecognitionHead(nn.Module):
     Params:
       x是一个列表
       - x[0]: encoder产生的hiddenstate, shape=[batch_size, time_steps, encoder_channels]
-      - x[1]: batch内每个sentence组成的idxes
-      - x[1]: batch内每个sentence的有效长度
+      - x[1]: batch内每个sentence组成的idxes, shape=[batch_size, max_length]，batch内每个样本的有效最后一位都是EOS_idx,
+              剩余的会用PADDING_idx补全，这部分没什么用
+      - x[1]: batch内每个sentence的有效长度，shape=[batch], 标记了每个样本中sentence的有效长度，便于计算loss
     """
     x, targets, lengths = x
     batch_size = x.size(0)
     # Decoder
-    state = torch.zeros(1, batch_size, self.sDim)  # h0
+    state = torch.zeros(1, batch_size, self.sDim)  # decoder h0
     outputs = []
 
     for i in range(max(lengths)):
@@ -207,9 +208,9 @@ class AttentionUnit(nn.Module):
     """
     sDim, xDim -> attDim -> 1
     Params:
-      - sDim:
-      - xDim:
-      - attDim:
+      - sDim: decoder的hidden layer dim
+      - xDim: encoder的output layer dim
+      - attDim: attention单元的dim
     """
     super(AttentionUnit, self).__init__()
 
@@ -232,29 +233,43 @@ class AttentionUnit(nn.Module):
     init.constant_(self.wEmbed.bias, 0)
 
   def forward(self, x, sPrev):
-    batch_size, T, _ = x.size()                      # [b x T x xDim]
-    x = x.view(-1, self.xDim)                        # [(b x T) x xDim]
-    xProj = self.xEmbed(x)                           # [(b x T) x attDim]
-    xProj = xProj.view(batch_size, T, -1)            # [b x T x attDim]
+    """
+    Params:
+      - x: encoder的所有hidden stats shape=[batch_size, time_step, encoder_dim]
+      - sPrev: decoder h0 initialization，也就是说sPrev
+    """
+    # 这条支路处理encoder的所有hidden states
+    batch_size, T, _ = x.size()                      # [batch_size, time_step, self.xDim]
+    x = x.view(-1, self.xDim)                        # [batch_size * time_step, self.xDim]
+    xProj = self.xEmbed(x)                           # [batch_size * time_step, self.attDim]
+    xProj = xProj.view(batch_size, T, -1)            # [batch_size, time_step, self.attDim]
 
-    sPrev = sPrev.squeeze(0)
-    sProj = self.sEmbed(sPrev)                       # [b x attDim]
-    sProj = torch.unsqueeze(sProj, 1)                # [b x 1 x attDim]
-    sProj = sProj.expand(batch_size, T, self.attDim) # [b x T x attDim]
+    # 这条支路处理当前decoder step上一步传进来的初始化（表述有问题）
+    sPrev = sPrev.squeeze(0)                         # [batch_size, self.sDim]
+    sProj = self.sEmbed(sPrev)                       # [batch_size, self.attDim]
+    sProj = torch.unsqueeze(sProj, 1)                # [batch_size, 1, self.attDim]
+    sProj = sProj.expand(batch_size, T, self.attDim) # [batch_size, time_stip, self.attDim]
 
-    sumTanh = torch.tanh(sProj + xProj)
-    sumTanh = sumTanh.view(-1, self.attDim)
+    sumTanh = torch.tanh(sProj + xProj)  # [batch_size, time_step, self.attDim]
+    sumTanh = sumTanh.view(-1, self.attDim)  # [batch_size * time_step, self.attDim]
 
-    vProj = self.wEmbed(sumTanh) # [(b x T) x 1]
-    vProj = vProj.view(batch_size, T)
+    vProj = self.wEmbed(sumTanh) # [batch_size * time_step, 1]
+    vProj = vProj.view(batch_size, T)  # [batch_size, time_step]
 
-    alpha = F.softmax(vProj, dim=1) # attention weights for each sample in the minibatch
+    alpha = F.softmax(vProj, dim=1)  # attention weights for each sample in the minibatch
 
-    return alpha
+    return alpha  # [batch_size, time_step]
 
 
 class DecoderUnit(nn.Module):
   def __init__(self, sDim, xDim, yDim, attDim):
+    """
+    Params:
+      - sDim: decoder的hidden layer dim
+      - xDim: encoder的output layer dim
+      - yDim: 最终输出的类别数目
+      - attDim: attention单元的dim
+    """
     super(DecoderUnit, self).__init__()
     self.sDim = sDim
     self.xDim = xDim
@@ -263,7 +278,7 @@ class DecoderUnit(nn.Module):
     self.emdDim = attDim
 
     self.attention_unit = AttentionUnit(sDim, xDim, attDim)
-    self.tgt_embedding = nn.Embedding(yDim+1, self.emdDim)  # the last is used for <BOS>
+    self.tgt_embedding = nn.Embedding(yDim+1, self.emdDim)  # the last is used for <EOS>
     self.gru = nn.GRU(input_size=xDim+self.emdDim, hidden_size=sDim, batch_first=True)
     self.fc = nn.Linear(sDim, yDim)
 
@@ -275,9 +290,15 @@ class DecoderUnit(nn.Module):
     init.constant_(self.fc.bias, 0)
 
   def forward(self, x, sPrev, yPrev):
+    """
     # x: feature sequence from the image decoder.
+    Params:
+      - x: encoder hidden states
+      - sPrev: decoder h0 initializaiton
+      - yPrev: 上一个时间步的输出，不是hidden state，是真正的输出的y_idx
+    """
     batch_size, T, _ = x.size()
-    alpha = self.attention_unit(x, sPrev)
+    alpha = self.attention_unit(x, sPrev)  # [batch_size, time_step]
     context = torch.bmm(alpha.unsqueeze(1), x).squeeze(1)
     yProj = self.tgt_embedding(yPrev.long())
     # self.gru.flatten_parameters()
