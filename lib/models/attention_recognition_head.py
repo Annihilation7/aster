@@ -17,7 +17,7 @@ class AttentionRecognitionHead(nn.Module):
     """
     Params:
       - num_classes: 输出的类别数目 (true_classes + <EOS>)
-      - in_planes: encoder输出的channels数量
+      - in_planes: encoder的hidden layer的dim
       - sDim: decoder的hidden layer的dim
       - attDim: Attention Module里面的dim
       - max_len_labels:
@@ -45,13 +45,14 @@ class AttentionRecognitionHead(nn.Module):
     x, targets, lengths = x
     batch_size = x.size(0)
     # Decoder
+    # 这里第一步的初始化为什么没用encoder最后输出的context来初始化呢
     state = torch.zeros(1, batch_size, self.sDim)  # decoder h0
     outputs = []
 
     for i in range(max(lengths)):
       if i == 0:
         # the last one is used as the <BOS>
-        y_prev = torch.zeros((batch_size)).fill_(self.num_classes)
+        y_prev = torch.zeros((batch_size)).fill_(self.num_classes)  # self.num_classes 这个idx代表了BOS?
       else:
         y_prev = targets[:, i - 1]
 
@@ -236,7 +237,7 @@ class AttentionUnit(nn.Module):
     """
     Params:
       - x: encoder的所有hidden stats shape=[batch_size, time_step, encoder_dim]
-      - sPrev: decoder h0 initialization，也就是说sPrev
+      - sPrev: decoder 的 h(t-1)
     """
     # 这条支路处理encoder的所有hidden states
     batch_size, T, _ = x.size()                      # [batch_size, time_step, self.xDim]
@@ -244,7 +245,7 @@ class AttentionUnit(nn.Module):
     xProj = self.xEmbed(x)                           # [batch_size * time_step, self.attDim]
     xProj = xProj.view(batch_size, T, -1)            # [batch_size, time_step, self.attDim]
 
-    # 这条支路处理当前decoder step上一步传进来的初始化（表述有问题）
+    # 这条支路处理当前decoder step上一步传进来的值
     sPrev = sPrev.squeeze(0)                         # [batch_size, self.sDim]
     sProj = self.sEmbed(sPrev)                       # [batch_size, self.attDim]
     sProj = torch.unsqueeze(sProj, 1)                # [batch_size, 1, self.attDim]
@@ -294,16 +295,16 @@ class DecoderUnit(nn.Module):
     # x: feature sequence from the image decoder.
     Params:
       - x: encoder hidden states
-      - sPrev: decoder h0 initializaiton
+      - sPrev: decoder h(t-1)
       - yPrev: 上一个时间步的输出，不是hidden state，是真正的输出的y_idx
     """
     batch_size, T, _ = x.size()
     alpha = self.attention_unit(x, sPrev)  # [batch_size, time_step]
-    context = torch.bmm(alpha.unsqueeze(1), x).squeeze(1)
-    yProj = self.tgt_embedding(yPrev.long())
+    context = torch.bmm(alpha.unsqueeze(1), x).squeeze(1)  # [batch_size, xDim]
+    yProj = self.tgt_embedding(yPrev.long())  # [batch_size, embedding_dim]
     # self.gru.flatten_parameters()
-    output, state = self.gru(torch.cat([yProj, context], 1).unsqueeze(1), sPrev)
-    output = output.squeeze(1)
+    output, state = self.gru(torch.cat([yProj, context], 1).unsqueeze(1), sPrev)  # [batch_size, 1, sDim]
+    output = output.squeeze(1)  # [batch_size, sDim]
 
-    output = self.fc(output)
+    output = self.fc(output)  # [batch_size, output_num]
     return output, state
