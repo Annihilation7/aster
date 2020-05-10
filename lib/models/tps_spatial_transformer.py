@@ -38,7 +38,7 @@ def compute_partial_repr(input_points, control_points):
 # output_ctrl_pts are specified, according to our task.
 def build_output_control_points(num_control_points, margins):
   """
-  产生 shape=[2*num_contron_points_per_size,2]的tensor，注意coordinates全部是诡异化后的值
+  产生 shape=[2*num_contron_points_per_size,2]的tensor，注意coordinates全部是归一化后的值
   """
   margin_x, margin_y = margins
   num_ctrl_pts_per_side = num_control_points // 2
@@ -122,7 +122,7 @@ class TPSSpatialTransformer(nn.Module):
     source_coordinate = torch.matmul(self.target_coordinate_repr, mapping_matrix)    # [batch_size, h*w, 2]
 
     grid = source_coordinate.view(-1, self.target_height, self.target_width, 2)  # [b, h, w, 2]
-    grid = torch.clamp(grid, 0, 1) # the source_control_points may be out of [0, 1].
+    grid = torch.clamp(grid, 0, 1)  # the source_control_points may be out of [0, 1].
     # the input to grid_sample is normalized [-1, 1], but what we get is [0, 1]
     grid = 2.0 * grid - 1.0  # F.grid_sample要求的要在 [-1, 1]之间
     output_maps = grid_sample(input, grid, canvas=None)  # [batch_size, 3, 32, 100]

@@ -55,7 +55,8 @@ class ModelBuilder(nn.Module):
       self.tps = TPSSpatialTransformer(
         output_image_size=tuple(global_args.tps_outputsize),
         num_control_points=global_args.num_control_points,
-        margins=tuple(global_args.tps_margins))
+        margins=tuple(global_args.tps_margins)
+      )
       self.stn_head = STNHead(
         in_planes=3,
         num_ctrlpoints=global_args.num_control_points,
